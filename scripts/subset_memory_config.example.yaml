@@ -1,0 +1,264 @@
+# =============================================================================
+# Failure-Aware Dual-Memory memory subset builder example config
+# =============================================================================
+#
+# Usage:
+#   python scripts/build_memory_subset.py --config scripts/subset_memory_config.example.yaml
+#
+# This file demonstrates how to build a sub-database from a merged memory store.
+# The script reads entries.json from input_dir, filters and deduplicates entries,
+# applies hierarchical quota sampling, and rebuilds:
+#   - entries.json
+#   - memory.index
+#   - idmap.json
+#
+# -----------------------------------------------------------------------------
+# Global paths / output behavior
+# -----------------------------------------------------------------------------
+input_dir: /path/to/merged_memory_store
+output_dir: /path/to/output_subset_memory_store
+overwrite: true
+report_json: /path/to/output_subset_memory_store/subset_report.json
+
+# -----------------------------------------------------------------------------
+# Reproducibility / rebuild behavior
+# -----------------------------------------------------------------------------
+random_seed: 42
+rebuild_batch_size: 512
+
+# -----------------------------------------------------------------------------
+# Encoder choice for the rebuilt sub-database
+# -----------------------------------------------------------------------------
+# Keep this aligned with your original database convention.
+# Current project default is onehot-only.
+use_onehot: true
+use_magpie: false
+
+# -----------------------------------------------------------------------------
+# Deduplication mode
+# -----------------------------------------------------------------------------
+# Supported values:
+#   none
+#   entry_id
+#   semantic
+#   reduced_formula
+#
+# Recommended:
+#   semantic        -> good default for merged incremental databases
+#   reduced_formula -> stronger collapsing at composition level
+dedup_mode: semantic
+
+# -----------------------------------------------------------------------------
+# Base filters
+# -----------------------------------------------------------------------------
+# These are applied before the hierarchical sampling logic.
+#
+# Supported filters:
+#   is_success: true / false
+#   target_value:
+#     eq: -0.5
+#     in: [-0.5, -1.5, -2.5]
+#     not_in: [...]
+#     min: -3.0
+#     max: -1.0
+#     inclusive_min: true
+#     inclusive_max: true
+#     ranges:
+#       - {min: -3.0, max: -2.0}
+#       - {eq: -0.5}
+#
+# Examples:
+# base_filters: {}
+# base_filters:
+#   is_success: true
+# base_filters:
+#   target_value:
+#     in: [-0.5, -1.5, -2.5]
+base_filters: {}
+
+# -----------------------------------------------------------------------------
+# Hierarchical selection
+# -----------------------------------------------------------------------------
+# Core concepts:
+#
+# 1. Every node defines a candidate pool:
+#    - inherited from parent
+#    - then filtered by `filters`
+#
+# 2. `pool_fraction` / `pool_count` cap how many entries this node may use from
+#    its candidate pool.
+#
+# 3. Child nodes define how the selected output of the parent is split:
+#    - output_fraction: share of the parent's final selected count
+#    - output_count: fixed count inside the parent
+#    - remainder: receives all leftover count not claimed by siblings
+#
+# 4. If the root node has no explicit output_count, the script will infer the
+#    maximum feasible total size that satisfies all constraints.
+#
+# IMPORTANT:
+# - Sibling filters should ideally be disjoint.
+# - If child fractions do not sum to 1, add exactly one `remainder: true` child.
+#
+selection:
+  name: root
+  children:
+    # -------------------------------------------------------------------------
+    # Top-level success branch
+    # -------------------------------------------------------------------------
+    - name: success_branch
+      filters:
+        is_success: true
+
+      # Example: only allow this branch to use 10% of the original success pool.
+      # Delete or set to null if you do not want this restriction.
+      pool_fraction: 0.10
+
+      # Example: success branch occupies 50% of the final sub-database.
+      output_fraction: 0.50
+
+      children:
+        # Example: within success, target=-0.5 occupies 20% of success branch.
+        - name: success_target_m0p5
+          filters:
+            target_value:
+              eq: -0.5
+          output_fraction: 0.20
+
+        # Example: within success, target=-1.5 occupies 20% of success branch.
+        - name: success_target_m1p5
+          filters:
+            target_value:
+              eq: -1.5
+          output_fraction: 0.20
+
+        # Example: within success, target=-2.5 occupies 20% of success branch.
+        - name: success_target_m2p5
+          filters:
+            target_value:
+              eq: -2.5
+          output_fraction: 0.20
+
+        # Example: all remaining success entries fall into the remainder bucket.
+        - name: success_other_targets
+          remainder: true
+
+    # -------------------------------------------------------------------------
+    # Top-level failure branch
+    # -------------------------------------------------------------------------
+    - name: failure_branch
+      filters:
+        is_success: false
+
+      # Example: only allow this branch to use 20% of the original failure pool.
+      pool_fraction: 0.20
+
+      # Example: failure branch occupies 50% of the final sub-database.
+      output_fraction: 0.50
+
+      children:
+        - name: failure_target_m0p5
+          filters:
+            target_value:
+              eq: -0.5
+          output_fraction: 0.20
+
+        - name: failure_target_m1p5
+          filters:
+            target_value:
+              eq: -1.5
+          output_fraction: 0.20
+
+        - name: failure_target_m2p5
+          filters:
+            target_value:
+              eq: -2.5
+          output_fraction: 0.20
+
+        - name: failure_other_targets
+          remainder: true
+
+# -----------------------------------------------------------------------------
+# Additional writing examples
+# -----------------------------------------------------------------------------
+#
+# Example A: success/failure 50/50 only, no target control
+#
+# selection:
+#   name: root
+#   children:
+#     - name: success_branch
+#       filters: {is_success: true}
+#       output_fraction: 0.5
+#     - name: failure_branch
+#       filters: {is_success: false}
+#       output_fraction: 0.5
+#
+# Example B: only keep success entries, with target=-0.5 / -1.5 / -2.5 each
+# occupying 20% of the final success-only database
+#
+# selection:
+#   name: root
+#   children:
+#     - name: success_only
+#       filters: {is_success: true}
+#       children:
+#         - name: t_m0p5
+#           filters: {target_value: {eq: -0.5}}
+#           output_fraction: 0.2
+#         - name: t_m1p5
+#           filters: {target_value: {eq: -1.5}}
+#           output_fraction: 0.2
+#         - name: t_m2p5
+#           filters: {target_value: {eq: -2.5}}
+#           output_fraction: 0.2
+#         - name: remainder_success
+#           remainder: true
+#
+# Example C: fixed-count database
+#
+# selection:
+#   name: root
+#   children:
+#     - name: success_branch
+#       filters: {is_success: true}
+#       output_count: 500
+#     - name: failure_branch
+#       filters: {is_success: false}
+#       output_count: 500
+#
+# Example D: target-specific branch with discrete values only
+#
+# base_filters:
+#   target_value:
+#     in: [-0.5, -1.5, -2.5]
+#
+# selection:
+#   name: root
+#   children:
+#     - name: success_branch
+#       filters: {is_success: true}
+#       output_fraction: 0.5
+#       children:
+#         - name: t_m0p5
+#           filters: {target_value: {eq: -0.5}}
+#           output_fraction: 0.333333
+#         - name: t_m1p5
+#           filters: {target_value: {eq: -1.5}}
+#           output_fraction: 0.333333
+#         - name: t_m2p5
+#           filters: {target_value: {eq: -2.5}}
+#           remainder: true
+#     - name: failure_branch
+#       filters: {is_success: false}
+#       output_fraction: 0.5
+#       children:
+#         - name: t_m0p5
+#           filters: {target_value: {eq: -0.5}}
+#           output_fraction: 0.333333
+#         - name: t_m1p5
+#           filters: {target_value: {eq: -1.5}}
+#           output_fraction: 0.333333
+#         - name: t_m2p5
+#           filters: {target_value: {eq: -2.5}}
+#           remainder: true

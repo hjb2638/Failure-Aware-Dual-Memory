@@ -1,0 +1,55 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+
+# C extensions
+*.so
+
+# Packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Environments
+.env
+.venv
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Experiment outputs & logs
+test_outputs/
+experiment_outputs/
+experiment_fianl/
+memorylog/
+memorybase/
+
+# Datasets
+data/
+
+# Memory stores
+memory_storage*/
+memory_storage_mp20_init/
+
+# Logs and output data
+*.log
+response_log_*.txt
+
+# Local config with paths
+scripts/subset_memory_config.yaml
+merge_report.json
+
+# OS
+.DS_Store
+Thumbs.db

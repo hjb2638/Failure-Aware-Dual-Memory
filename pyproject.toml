@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "failure-aware-dual-memory"
+description = "Failure-Aware Dual-Memory for iterative composition proposal, diffusion generation, and property-guided materials search."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "setuptools<81",
+  "torch",
+  "transformers==4.56.0",
+  "torch_geometric",
+  "torch_scatter",
+  "torch_sparse",
+  "numpy",
+  "pandas",
+  "scipy",
+  "scikit-learn",
+  "tqdm",
+  "matplotlib",
+  "sentencepiece==0.2.0",
+  "easydict==1.13",
+  "wandb==0.19.8",
+  "pymatgen==2025.3.10",
+  "e3nn==0.5.6",
+  "jarvis-tools==2024.10.30",
+  "pydantic-settings==2.8.1",
+  "pandarallel==1.6.5",
+  "smact==3.0.2",
+  "CBFV==1.1.0",
+  "p-tqdm==1.4.2",
+  "faiss-cpu==1.10.0",
+  "accelerate==1.10.1",
+  "bitsandbytes==0.47.0",
+]
+
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = {attr = "failure_aware_dual_memory.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["."]
